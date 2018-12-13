@@ -1,0 +1,18 @@
+[
+  {
+    "userName" : "root",
+    "host" : "192.168.30.210",
+    "passWord" : "1qazcde3!@#",
+    "srcDirectory" : "/tmp/temp",
+    "destDirectory" : "C:\\Users\\guazi\\Downloads\\tmpTemp",
+    "sleepTime" : "5"
+  },
+  {
+    "userName" : "root",
+    "host" : "172.16.100.41",
+    "passWord" : "1qazcde3!@#",
+    "srcDirectory" : "/var/temp",
+    "destDirectory" : "C:\\Users\\guazi\\Downloads\\varTemp",
+    "sleepTime" : "5"
+  }
+]

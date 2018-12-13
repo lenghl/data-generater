@@ -1,0 +1,11 @@
+[ {
+  "id" : "211d4c5d970fe86823cf8479eddd7cd5",
+  "fileNames" : [ "event_detection_181206195533.tar.gz" ],
+  "host" : "172.16.100.41",
+  "srcDirectory" : "/var/temp"
+}, {
+  "id" : "6afd64376e1a9ce66adc2d3d158a2cf0",
+  "fileNames" : [ "modbus_181206195029.tar.gz", "mail_181206183724.tar.gz", "ldap_181206183724.tar.gz", "login_181206183724.tar.gz", "opc_181206183725.tar.gz" ],
+  "host" : "192.168.30.210",
+  "srcDirectory" : "/tmp/temp"
+} ]
