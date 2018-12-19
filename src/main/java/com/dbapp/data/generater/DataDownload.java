@@ -19,6 +19,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
+import static com.dbapp.data.generater.Util.getFileList;
 import static com.dbapp.data.generater.Util.unCompressArchiveGz;
 
 /**
@@ -89,26 +90,16 @@ public class DataDownload {
                 channel.connect();
                 ChannelSftp sftp = (ChannelSftp) channel;
 
-                Vector fileList = sftp.ls(srcDirectory); //返回目录下所有文件名称
-                List<String> fileNameList = new ArrayList<String>();
-                Iterator it = fileList.iterator();
-                while(it.hasNext()) {
-                    String fileName = ((ChannelSftp.LsEntry)it.next()).getFilename();
-                    if(".".equals(fileName) || "..".equals(fileName)){
-                        continue;
-                    }
-                    fileNameList.add(fileName);
-                }
-                logger.info("{}目录地址的所有文件: {}", srcDirectory, String.join(",", fileNameList));
+                List<String> filePathList = getFileList(sftp, srcDirectory);
+                logger.info("{}目录地址的所有文件: {}", srcDirectory, String.join(",", filePathList));
                 Set<String> downloadedFiles = new HashSet<>(hostDirStatus.getFileNames());
-                fileNameList = fileNameList.stream().filter(fileName -> !downloadedFiles.contains(fileName)).collect(Collectors.toList());
-                logger.info("{}目录地址需要下载的所有文件: {}", srcDirectory, String.join(",", fileNameList));
+                filePathList = filePathList.stream().filter(filePath -> !downloadedFiles.contains(filePath)).collect(Collectors.toList());
+                logger.info("{}目录地址需要下载的所有文件: {}", srcDirectory, String.join(",", filePathList));
                 sftp.cd(srcDirectory);
 
-                for (String fileName : fileNameList) {
-                    logger.info("开始下载文件: {}", fileName);
-                    String srcFilePath = srcDirectory + "/" + fileName;//目标机器为linux
-                    String destFilePath = destDirectory + File.separator + fileName;
+                for (String srcFilePath : filePathList) {
+                    logger.info("开始下载文件: {}", srcFilePath);
+                    String destFilePath = destDirectory + File.separator + new File(srcFilePath).getName();
                     File destDir = new File(destDirectory);
                     boolean dirExists = false;
                     dirExists = destDir.exists();
@@ -130,8 +121,8 @@ public class DataDownload {
                     out.flush();
                     out.close();
                     unCompressArchiveGz(destFilePath);
-                    appendFileToStatus(md5, hostDirConf.getHost(), hostDirConf.getSrcDirectory(), fileName);
-                    logger.info("下载文件: {} 结束", fileName);
+                    appendFileToStatus(md5, hostDirConf.getHost(), hostDirConf.getSrcDirectory(), srcFilePath);
+                    logger.info("下载文件: {} 结束", srcFilePath);
                 }
                 channel.disconnect();
                 session.disconnect();
@@ -139,11 +130,7 @@ public class DataDownload {
                 Thread.sleep(1000 * Integer.parseInt(hostDirConf.getSleepTime()));
                 logger.info("睡眠{}s结束", hostDirConf.getSleepTime());
             } catch (Exception e) {
-                if (e.getMessage().toLowerCase().equals("no such file")) {
-                    logger.error("主机" + hostDirConf.getHost() + "中不存在目录" + hostDirConf.getSrcDirectory(), e);
-                } else {
-                    logger.error("导出数据文件异常! 主机:" + hostDirConf.getHost() + ", 目录:" + hostDirConf.getSrcDirectory(), e);
-                }
+                logger.error("导出数据文件异常! 主机:" + hostDirConf.getHost() + ", 目录:" + hostDirConf.getSrcDirectory(), e);
             }
         }
     }

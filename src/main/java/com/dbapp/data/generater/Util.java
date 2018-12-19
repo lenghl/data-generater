@@ -1,10 +1,18 @@
 package com.dbapp.data.generater;
 
+import com.jcraft.jsch.ChannelSftp;
+import com.jcraft.jsch.SftpException;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Vector;
 
 /**
  * 描述:
@@ -14,6 +22,7 @@ import java.io.*;
  * @create 2018-12-12 13:37
  */
 public class Util {
+    private static final Logger logger = LogManager.getLogger(Util.class);
 
     /**
      * 解压tar
@@ -72,7 +81,38 @@ public class Util {
         unCompressTar(finalName);
     }
 
+    /**
+     * 返回多级目录下的文件
+     * @param sftp
+     * @param srcDirectory
+     * @return
+     * @throws SftpException
+     */
+    public static List<String> getFileList(ChannelSftp sftp, String srcDirectory) throws SftpException {
+        List<String> fileNameList = new ArrayList<>();
+        logger.info("遍历{}目录", srcDirectory);
+        Vector fileList = sftp.ls(srcDirectory);
+        Iterator it = fileList.iterator();
+        while(it.hasNext()) {
+            ChannelSftp.LsEntry entry = (ChannelSftp.LsEntry)it.next();
+            String fileName = entry.getFilename();
+            if(".".equals(fileName) || "..".equals(fileName)){
+                continue;
+            }
+            if (isDirectory(entry)) {
+                fileNameList.addAll((getFileList(sftp, srcDirectory + "/" + fileName)));
+            } else {
+                fileNameList.add(srcDirectory + "/" + fileName);
+            }
+        }
+        return fileNameList;
+    }
+
+    private static boolean isDirectory(ChannelSftp.LsEntry entry) {
+        return !entry.getLongname().trim().startsWith("-");
+    }
+
 //    public static void main(String[] args) throws IOException {
-//        unCompressArchiveGz("C:\\Users\\guazi\\Downloads\\dns_181206183724.tar.gz");
+//        System.out.println(System.currentTimeMillis());
 //    }
 }
