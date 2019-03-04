@@ -68,6 +68,10 @@ public class DataDownload {
 
     private static void downloadDataFromHost(HostDirConf hostDirConf) {
         /** 以下为循环过程 */
+        ChannelSftp sftp = null;
+        JSch ssh = null;
+        Session session = null;
+        Channel channel = null;
         for (;;) {
             try {
                 String srcDirectory = hostDirConf.getSrcDirectory();
@@ -78,17 +82,19 @@ public class DataDownload {
                 logger.info("主机:{}, 目录:{}, 已经下载完毕的文件:{}",
                         hostDirConf.getHost(), hostDirConf.getDestDirectory(), String.join(",", hostDirStatus.getFileNames()));
 
-                JSch ssh = new JSch();
-                Session session = ssh.getSession(hostDirConf.getUserName(), hostDirConf.getHost(), 22);
-                Properties config = new java.util.Properties();
-                config.put("StrictHostKeyChecking", "no");
-                session.setConfig(config);
-                session.setPassword(hostDirConf.getPassWord());
+                if (sftp == null || sftp.isClosed() || !sftp.isConnected()) {
+                    ssh = new JSch();
+                    session = ssh.getSession(hostDirConf.getUserName(), hostDirConf.getHost(), 22);
+                    Properties config = new java.util.Properties();
+                    config.put("StrictHostKeyChecking", "no");
+                    session.setConfig(config);
+                    session.setPassword(hostDirConf.getPassWord());
 
-                session.connect();
-                Channel channel = session.openChannel("sftp");
-                channel.connect();
-                ChannelSftp sftp = (ChannelSftp) channel;
+                    session.connect();
+                    channel = session.openChannel("sftp");
+                    channel.connect();
+                    sftp = (ChannelSftp) channel;
+                }
 
                 List<String> filePathList = getFileList(sftp, srcDirectory);
                 logger.info("{}目录地址的所有文件: {}", srcDirectory, String.join(",", filePathList));
@@ -124,12 +130,13 @@ public class DataDownload {
                     appendFileToStatus(md5, hostDirConf.getHost(), hostDirConf.getSrcDirectory(), srcFilePath);
                     logger.info("下载文件: {} 结束", srcFilePath);
                 }
-                channel.disconnect();
-                session.disconnect();
                 logger.info("开始睡眠{}s", hostDirConf.getSleepTime());
                 Thread.sleep(1000 * Integer.parseInt(hostDirConf.getSleepTime()));
                 logger.info("睡眠{}s结束", hostDirConf.getSleepTime());
             } catch (Exception e) {
+                channel.disconnect();
+                channel.disconnect();
+                session.disconnect();
                 logger.error("导出数据文件异常! 主机:" + hostDirConf.getHost() + ", 目录:" + hostDirConf.getSrcDirectory(), e);
             }
         }
