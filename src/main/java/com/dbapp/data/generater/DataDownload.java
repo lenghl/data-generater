@@ -37,7 +37,7 @@ public class DataDownload {
     private static final String status = "status.json";
     private static String rootDir = System.getProperty("user.dir");
     private static final ExecutorService THREAT_POOL = new ThreadPoolExecutor(
-            4, 20,
+            20, 20,
             5 * 60, TimeUnit.SECONDS,
             new SynchronousQueue<>(),
             new ThreadPoolExecutor.CallerRunsPolicy());
@@ -61,8 +61,19 @@ public class DataDownload {
             logger.error("读取配置文件异常, 请检查配置文件.", e);
             return;
         }
-        for (HostDirConf hostDirConf : hostDirConfs) {
-            THREAT_POOL.submit(() -> downloadDataFromHost(hostDirConf));
+
+        for (;;) {
+            for (HostDirConf hostDirConf : hostDirConfs) {
+                THREAT_POOL.submit(() -> downloadDataFromHost(hostDirConf));
+            }
+
+            logger.info("开始睡眠{}s", hostDirConfs.get(0).getSleepTime());
+            try {
+                Thread.sleep(1000 * Integer.parseInt(hostDirConfs.get(0).getSleepTime()));
+            } catch (InterruptedException e) {
+                logger.error("睡眠异常", e);
+            }
+            logger.info("睡眠{}s结束", hostDirConfs.get(0).getSleepTime());
         }
     }
 
@@ -72,73 +83,68 @@ public class DataDownload {
         JSch ssh = null;
         Session session = null;
         Channel channel = null;
-        for (;;) {
-            try {
-                String srcDirectory = hostDirConf.getSrcDirectory();
-                String destDirectory = hostDirConf.getDestDirectory();
-                String md5 = md5Password(hostDirConf.getHost() + hostDirConf.getDestDirectory());
-                HostDirStatus hostDirStatus = getHostStatus().stream().filter(s -> md5.equals(s.getId())).findFirst()
-                        .orElse(new HostDirStatus(md5, hostDirConf.getHost(), hostDirConf.getSrcDirectory()));
-                logger.info("主机:{}, 目录:{}, 已经下载完毕的文件:{}",
-                        hostDirConf.getHost(), hostDirConf.getDestDirectory(), String.join(",", hostDirStatus.getFileNames()));
+        try {
+            String srcDirectory = hostDirConf.getSrcDirectory();
+            String destDirectory = hostDirConf.getDestDirectory();
+            String md5 = md5Password(hostDirConf.getHost() + hostDirConf.getDestDirectory());
+            HostDirStatus hostDirStatus = getHostStatus().stream().filter(s -> md5.equals(s.getId())).findFirst()
+                    .orElse(new HostDirStatus(md5, hostDirConf.getHost(), hostDirConf.getSrcDirectory()));
+            logger.debug("主机:{}, 目录:{}, 已经下载完毕的文件:{}",
+                    hostDirConf.getHost(), hostDirConf.getDestDirectory(), String.join(",", hostDirStatus.getFileNames()));
 
-                if (sftp == null || sftp.isClosed() || !sftp.isConnected()) {
-                    ssh = new JSch();
-                    session = ssh.getSession(hostDirConf.getUserName(), hostDirConf.getHost(), 22);
-                    Properties config = new java.util.Properties();
-                    config.put("StrictHostKeyChecking", "no");
-                    session.setConfig(config);
-                    session.setPassword(hostDirConf.getPassWord());
+            if (sftp == null || sftp.isClosed() || !sftp.isConnected()) {
+                ssh = new JSch();
+                session = ssh.getSession(hostDirConf.getUserName(), hostDirConf.getHost(), 22);
+                Properties config = new java.util.Properties();
+                config.put("StrictHostKeyChecking", "no");
+                session.setConfig(config);
+                session.setPassword(hostDirConf.getPassWord());
 
-                    session.connect();
-                    channel = session.openChannel("sftp");
-                    channel.connect();
-                    sftp = (ChannelSftp) channel;
-                }
-
-                List<String> filePathList = getFileList(sftp, srcDirectory);
-                logger.info("{}目录地址的所有文件: {}", srcDirectory, String.join(",", filePathList));
-                Set<String> downloadedFiles = new HashSet<>(hostDirStatus.getFileNames());
-                filePathList = filePathList.stream().filter(filePath -> !downloadedFiles.contains(filePath)).collect(Collectors.toList());
-                logger.info("{}目录地址需要下载的所有文件: {}", srcDirectory, String.join(",", filePathList));
-                sftp.cd(srcDirectory);
-
-                for (String srcFilePath : filePathList) {
-                    logger.info("开始下载文件: {}", srcFilePath);
-                    String destFilePath = destDirectory + File.separator + new File(srcFilePath).getName();
-                    File destDir = new File(destDirectory);
-                    boolean dirExists = false;
-                    dirExists = destDir.exists();
-                    boolean fileExists = false;
-                    if (!dirExists) {
-                        dirExists = destDir.mkdirs();//创建目录
-                    }
-                    if (dirExists) {
-                        new File(destFilePath).delete();
-                        fileExists = new File(destFilePath).createNewFile();
-                    }
-
-                    if (!fileExists) {
-                        logger.info("本地文件创建异常, 请检查本地输出文件目录是否存在!");
-                        continue;
-                    }
-                    OutputStream out = new FileOutputStream(destFilePath);
-                    sftp.get(srcFilePath, out);
-                    out.flush();
-                    out.close();
-                    unCompressArchiveGz(destFilePath);
-                    appendFileToStatus(md5, hostDirConf.getHost(), hostDirConf.getSrcDirectory(), srcFilePath);
-                    logger.info("下载文件: {} 结束", srcFilePath);
-                }
-                logger.info("开始睡眠{}s", hostDirConf.getSleepTime());
-                Thread.sleep(1000 * Integer.parseInt(hostDirConf.getSleepTime()));
-                logger.info("睡眠{}s结束", hostDirConf.getSleepTime());
-            } catch (Exception e) {
-                channel.disconnect();
-                channel.disconnect();
-                session.disconnect();
-                logger.error("导出数据文件异常! 主机:" + hostDirConf.getHost() + ", 目录:" + hostDirConf.getSrcDirectory(), e);
+                session.connect();
+                channel = session.openChannel("sftp");
+                channel.connect();
+                sftp = (ChannelSftp) channel;
             }
+
+            List<String> filePathList = getFileList(sftp, srcDirectory);
+            logger.debug("{}目录地址的所有文件: {}", srcDirectory, String.join(",", filePathList));
+            Set<String> downloadedFiles = new HashSet<>(hostDirStatus.getFileNames());
+            filePathList = filePathList.stream().filter(filePath -> !downloadedFiles.contains(filePath)).collect(Collectors.toList());
+            logger.debug("{}目录地址需要下载的所有文件: {}", srcDirectory, String.join(",", filePathList));
+            sftp.cd(srcDirectory);
+
+            for (String srcFilePath : filePathList) {
+                logger.info("开始下载文件: {}", srcFilePath);
+                String destFilePath = destDirectory + File.separator + new File(srcFilePath).getName();
+                File destDir = new File(destDirectory);
+                boolean dirExists = false;
+                dirExists = destDir.exists();
+                boolean fileExists = false;
+                if (!dirExists) {
+                    dirExists = destDir.mkdirs();//创建目录
+                }
+                if (dirExists) {
+                    new File(destFilePath).delete();
+                    fileExists = new File(destFilePath).createNewFile();
+                }
+
+                if (!fileExists) {
+                    logger.error("本地文件创建异常, 请检查本地输出文件目录是否存在!");
+                    continue;
+                }
+                OutputStream out = new FileOutputStream(destFilePath);
+                sftp.get(srcFilePath, out);
+                out.flush();
+                out.close();
+                unCompressArchiveGz(destFilePath);
+                appendFileToStatus(md5, hostDirConf.getHost(), hostDirConf.getSrcDirectory(), srcFilePath);
+                logger.info("下载文件: {} 结束", srcFilePath);
+            }
+        } catch (Exception e) {
+            channel.disconnect();
+            channel.disconnect();
+            session.disconnect();
+            logger.error("导出数据文件异常! 主机:" + hostDirConf.getHost() + ", 目录:" + hostDirConf.getSrcDirectory(), e);
         }
     }
 
