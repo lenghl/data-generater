@@ -2,7 +2,10 @@ package com.dbapp.data.generater;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jcraft.jsch.*;
+import com.jcraft.jsch.Channel;
+import com.jcraft.jsch.ChannelSftp;
+import com.jcraft.jsch.JSch;
+import com.jcraft.jsch.Session;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -13,14 +16,10 @@ import java.io.OutputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.SynchronousQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 
 import static com.dbapp.data.generater.Util.getFileList;
-import static com.dbapp.data.generater.Util.unCompressArchiveGz;
 
 /**
  * 描述:
@@ -37,9 +36,9 @@ public class DataDownload {
     private static final String status = "status.json";
     private static String rootDir = System.getProperty("user.dir");
     private static final ExecutorService THREAT_POOL = new ThreadPoolExecutor(
-            20, 20,
+            1, 1,
             5 * 60, TimeUnit.SECONDS,
-            new SynchronousQueue<>(),
+            new LinkedBlockingQueue<>(1000),
             new ThreadPoolExecutor.CallerRunsPolicy());
 
     public static void main(String[] args) {
@@ -76,14 +75,15 @@ public class DataDownload {
             logger.info("睡眠{}s结束", hostDirConfs.get(0).getSleepTime());
         }
     }
+    private static Map<String, ChannelSftp> map = new HashMap<>();
 
     private static void downloadDataFromHost(HostDirConf hostDirConf) {
         /** 以下为循环过程 */
         ChannelSftp sftp = null;
-        JSch ssh = null;
-        Session session = null;
-        Channel channel = null;
+        String mapkey = hostDirConf.getHost() + hostDirConf.getUserName();
         try {
+            sftp = map.get(mapkey);
+
             String srcDirectory = hostDirConf.getSrcDirectory();
             String destDirectory = hostDirConf.getDestDirectory();
             String md5 = md5Password(hostDirConf.getHost() + hostDirConf.getDestDirectory());
@@ -93,28 +93,33 @@ public class DataDownload {
                     hostDirConf.getHost(), hostDirConf.getDestDirectory(), String.join(",", hostDirStatus.getFileNames()));
 
             if (sftp == null || sftp.isClosed() || !sftp.isConnected()) {
-                ssh = new JSch();
-                session = ssh.getSession(hostDirConf.getUserName(), hostDirConf.getHost(), 22);
+                logger.info("初始化sftp客户端, 主机账号: {}", mapkey);
+                JSch ssh = new JSch();
+                Session session = ssh.getSession(hostDirConf.getUserName(), hostDirConf.getHost(), 22);
                 Properties config = new java.util.Properties();
                 config.put("StrictHostKeyChecking", "no");
                 session.setConfig(config);
                 session.setPassword(hostDirConf.getPassWord());
 
                 session.connect();
-                channel = session.openChannel("sftp");
+                Channel channel = session.openChannel("sftp");
                 channel.connect();
                 sftp = (ChannelSftp) channel;
+                map.put(mapkey, sftp);
             }
 
             List<String> filePathList = getFileList(sftp, srcDirectory);
             logger.debug("{}目录地址的所有文件: {}", srcDirectory, String.join(",", filePathList));
             Set<String> downloadedFiles = new HashSet<>(hostDirStatus.getFileNames());
-            filePathList = filePathList.stream().filter(filePath -> !downloadedFiles.contains(filePath)).collect(Collectors.toList());
+            filePathList = filePathList.stream()
+                    .filter(filePath -> !downloadedFiles.contains(filePath))
+                    .filter(filePath -> filePath.contains(".tar.gz"))
+                    .collect(Collectors.toList());
             logger.debug("{}目录地址需要下载的所有文件: {}", srcDirectory, String.join(",", filePathList));
             sftp.cd(srcDirectory);
 
             for (String srcFilePath : filePathList) {
-                logger.info("开始下载文件: {}", srcFilePath);
+                logger.info("开始下载主机: {}上的文件: {}", hostDirConf.getHost(), srcFilePath);
                 String destFilePath = destDirectory + File.separator + new File(srcFilePath).getName();
                 File destDir = new File(destDirectory);
                 boolean dirExists = false;
@@ -132,18 +137,20 @@ public class DataDownload {
                     logger.error("本地文件创建异常, 请检查本地输出文件目录是否存在!");
                     continue;
                 }
+                appendFileToStatus(md5, hostDirConf.getHost(), hostDirConf.getSrcDirectory(), srcFilePath);
                 OutputStream out = new FileOutputStream(destFilePath);
                 sftp.get(srcFilePath, out);
                 out.flush();
                 out.close();
-                unCompressArchiveGz(destFilePath);
-                appendFileToStatus(md5, hostDirConf.getHost(), hostDirConf.getSrcDirectory(), srcFilePath);
-                logger.info("下载文件: {} 结束", srcFilePath);
+                //unCompressArchiveGz(destFilePath);
+                logger.info("下载主机: {}上的文件{} 结束", hostDirConf.getHost(), srcFilePath);
             }
         } catch (Exception e) {
-            channel.disconnect();
-            channel.disconnect();
-            session.disconnect();
+            if (sftp != null && !sftp.isConnected()) {
+                sftp.disconnect();
+                sftp = null;
+                map.put(mapkey, null);
+            }
             logger.error("导出数据文件异常! 主机:" + hostDirConf.getHost() + ", 目录:" + hostDirConf.getSrcDirectory(), e);
         }
     }

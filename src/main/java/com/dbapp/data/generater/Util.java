@@ -52,6 +52,7 @@ public class Util {
             bos.close();
         }
         tais.close();
+        logger.info("删除已被解压缩的文件: {}", finalName);
         file.delete();//删除tar文件
     }
 
@@ -78,6 +79,7 @@ public class Util {
         gcis.close();
         bos.close();
         file.delete();//删除tar.gz文件
+        logger.info("删除已被解压缩的文件: {}", archive);
         unCompressTar(finalName);
     }
 
@@ -90,7 +92,7 @@ public class Util {
      */
     public static List<String> getFileList(ChannelSftp sftp, String srcDirectory) throws SftpException {
         List<String> fileNameList = new ArrayList<>();
-        logger.info("遍历{}目录", srcDirectory);
+        logger.debug("遍历{}目录", srcDirectory);
         Vector fileList = sftp.ls(srcDirectory);
         Iterator it = fileList.iterator();
         while(it.hasNext()) {
@@ -113,6 +115,9 @@ public class Util {
     }
 
 //    public static void main(String[] args) throws IOException {
+//        String s = "//Output_msg/Event_detection/event_detection_190308142132.tar.gz";
+//        System.out.println(s.contains(".tar.gz"));
+//        System.out.println(s.contains("\\.ta\\r.gz"));
 //        System.out.println(System.currentTimeMillis());
 //    }
 }
